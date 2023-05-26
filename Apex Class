@@ -1,0 +1,58 @@
+public class WooCommerceIntegrationService {
+   
+        private static final String consumerKey = 'ck_3fa86f45651345539e3c1e867182af77a7b741cc';
+        private static final String consumerSecret = 'cs_a69a2797d7fcac978b9b8e31e888b4e677ff5238';
+    
+    public static void syncProductInventory() {
+        // Endpoint da API do Woocommerce para recuperar lista de pedidos
+        String endpoint = 'https://loja2.bazargf.com.br/wp-json/wc/v3/ordens';
+        
+        List<Map<String, Object>> recentSales = getRecentSales(endpoint);
+        updateInventory(recentSales);
+        
+       
+    } 
+    private static List<Map<String, Object>> getRecentSales(String endpoint) {
+        List<Map<String, Object>> sales = new List<Map<String, Object>>();
+        
+        HttpRequest request = new HttpRequest();
+        request.setEndpoint(endpoint);
+        request.setHeader('Authorization', 'Basic ' + EncodingUtil.base64Encode(Blob.valueOf(consumerKey + ':' + consumerSecret)));
+        request.setMethod('GET');
+        
+        HttpResponse response = new Http().send(request);
+        if (response.getStatusCode() == 200) {
+            sales = (List<Map<String, Object>>) JSON.deserializeUntyped(response.getBody());
+        } else {
+            System.debug('Failed to retrieve recent sales from WooCommerce. Response: ' + response.getBody());
+        }
+        
+        return sales;
+    }
+    
+    // Método para atualizar o inventário no objeto "Product_Inventory__c" no Salesforce
+    private static void updateInventory(List<Map<String, Object>> sales) {
+        List<Product_Inventory__c> inventoryToUpdate = new List<Product_Inventory__c>();
+        
+        for (Map<String, Object> sale : sales) {
+            // Extrair informações relevantes da venda, como SKU do produto e quantidade vendida
+            String productSku = (String) sale.get('sku');
+            Integer quantitySold = (Integer) sale.get('quantity');
+            
+            // Consultar o objeto "Product_Inventory__c" com base no SKU do produto
+            List<Product_Inventory__c> matchingInventory = [SELECT Id, Quantity__c FROM Product_Inventory__c WHERE SKU__c = :productSku];
+            
+            if (!matchingInventory.isEmpty()) {
+                // Atualizar a quantidade do inventário com base na quantidade vendida
+                Product_Inventory__c inventory = matchingInventory[0];
+                inventory.Quantity__c -= quantitySold;
+                inventoryToUpdate.add(inventory);
+            }
+        }
+        
+        if (!inventoryToUpdate.isEmpty()) {
+            // Atualizar os registros do objeto "Product_Inventory__c" no Salesforce
+            update inventoryToUpdate;
+        }
+    }
+}  
